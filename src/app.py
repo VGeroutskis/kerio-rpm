@@ -18,7 +18,7 @@ class SettingsWindow(Adw.Window):
         self.set_default_size(400, 450)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        box.set_margin_all(24)
+        box.set_margin_start(24); box.set_margin_end(24); box.set_margin_top(24); box.set_margin_bottom(24)
         self.set_content(box)
 
         self.server_entry = Gtk.Entry(placeholder_text="VPN Server IP/Hostname")
@@ -116,7 +116,7 @@ class KerioWindow(Adw.ApplicationWindow):
         self.status_page = Adw.StatusPage(title="Checking status...", icon_name="network-vpn-acquiring-symbolic")
         
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
-        main_box.set_margin_all(20)
+        main_box.set_margin_start(20); main_box.set_margin_end(20); main_box.set_margin_top(20); main_box.set_margin_bottom(20)
         main_box.append(self.status_page)
 
         self.connect_switch = Gtk.Switch(halign=Gtk.Align.CENTER)
