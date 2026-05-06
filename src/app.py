@@ -4,6 +4,8 @@ gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw, GLib, Gio
 import threading
 import subprocess
+import os
+import shutil
 from config_handler import ConfigHandler
 from vpn_manager import VPNManager
 
@@ -13,13 +15,10 @@ class SettingsWindow(Adw.Window):
         self.config_handler = config_handler
         self.vpn_manager = vpn_manager
         self.set_title("Kerio VPN Settings")
-        self.set_default_size(400, 350)
+        self.set_default_size(400, 450)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        box.set_margin_start(24)
-        box.set_margin_end(24)
-        box.set_margin_top(24)
-        box.set_margin_bottom(24)
+        box.set_margin_all(24)
         self.set_content(box)
 
         self.server_entry = Gtk.Entry(placeholder_text="VPN Server IP/Hostname")
@@ -40,6 +39,11 @@ class SettingsWindow(Adw.Window):
         fp_box.append(fetch_btn)
         box.append(fp_box)
 
+        # Import Button
+        import_btn = Gtk.Button(label="Import from .conf file")
+        import_btn.connect("clicked", self.on_import_clicked)
+        box.append(import_btn)
+
         save_btn = Gtk.Button(label="Save and Setup Container", css_classes=["suggested-action"])
         save_btn.connect("clicked", self.on_save_clicked)
         box.append(save_btn)
@@ -49,6 +53,35 @@ class SettingsWindow(Adw.Window):
             self.server_entry.set_text(config.get('server', ''))
             self.user_entry.set_text(config.get('username', ''))
             self.fp_entry.set_text(config.get('fingerprint', ''))
+
+    def on_import_clicked(self, btn):
+        dialog = Gtk.FileChooser                    # Simplified for this turn, using proper one
+        # Logic to open file chooser
+        native = Gtk.FileChooserNative.new(
+            title="Open Kerio Config",
+            parent=self.get_root(),
+            action=Gtk.FileChooserAction.OPEN,
+            accept_label="_Open",
+            cancel_label="_Cancel",
+        )
+        native.connect("response", self.on_import_file_response)
+        native.show()
+
+    def on_import_file_response(self, dialog, response):
+        if response == Gtk.ResponseType.ACCEPT:
+            file_path = dialog.get_file().get_path()
+            # Basic parsing of manual XML
+            import xml.etree.ElementTree as ET
+            try:
+                tree = ET.parse(file_path)
+                root = tree.getroot()
+                conn = root.find(".//connection")
+                if conn is not None:
+                    self.server_entry.set_text(conn.findtext("server", ""))
+                    self.user_entry.set_text(conn.findtext("username", ""))
+                    self.fp_entry.set_text(conn.findtext("fingerprint", ""))
+            except: pass
+        dialog.destroy()
 
     def on_fetch_clicked(self, btn):
         server = self.server_entry.get_text()
@@ -68,6 +101,7 @@ class SettingsWindow(Adw.Window):
             password=self.pass_entry.get_text(),
             fingerprint=self.fp_entry.get_text()
         )
+        # Force container setup
         threading.Thread(target=self.vpn_manager.ensure_container_exists, daemon=True).start()
         self.close()
 
@@ -75,22 +109,30 @@ class KerioWindow(Adw.ApplicationWindow):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.set_title("Kerio VPN")
-        self.set_default_size(450, 400)
+        self.set_default_size(450, 450)
         self.vpn_manager = VPNManager()
         self.config_handler = ConfigHandler()
 
         self.status_page = Adw.StatusPage(title="Checking status...", icon_name="network-vpn-acquiring-symbolic")
-        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
-        main_box.set_margin_top(30)
+        
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
+        main_box.set_margin_all(20)
         main_box.append(self.status_page)
 
         self.connect_switch = Gtk.Switch(halign=Gtk.Align.CENTER)
         self.connect_switch.connect("state-set", self.on_switch_state_set)
         main_box.append(self.connect_switch)
 
-        settings_btn = Gtk.Button(label="Settings", halign=Gtk.Align.CENTER)
+        btn_box = Gtk.Box(spacing=10, halign=Gtk.Align.CENTER)
+        settings_btn = Gtk.Button(label="Settings")
         settings_btn.connect("clicked", self.on_settings_clicked)
-        main_box.append(settings_btn)
+        btn_box.append(settings_btn)
+
+        quit_btn = Gtk.Button(label="Quit")
+        quit_btn.connect("clicked", lambda x: self.get_application().quit())
+        btn_box.append(quit_btn)
+        
+        main_box.append(btn_box)
 
         self.set_content(main_box)
         self.timeout_id = GLib.timeout_add_seconds(2, self.update_ui_status)
@@ -112,6 +154,7 @@ class KerioWindow(Adw.ApplicationWindow):
             self.connect_switch.set_active(False)
         elif status == 'not_found':
             self.status_page.set_title("Container Missing")
+            self.status_page.set_description("Go to Settings and Save to initialize")
             self.status_page.set_icon_name("dialog-warning-symbolic")
         return True
 
