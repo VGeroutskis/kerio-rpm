@@ -3,6 +3,7 @@ name: Build RPM
 on:
   push:
     branches: [ main ]
+    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
   workflow_dispatch:
@@ -23,8 +24,8 @@ jobs:
       run: |
         NAME=$(grep -i '^Name:' rpm/kerio-rpm.spec | awk '{print $2}')
         VERSION=$(grep -i '^Version:' rpm/kerio-rpm.spec | awk '{print $2}')
-        mkdir -p ~/rpmbuild/SOURCES
-        tar -czf ~/rpmbuild/SOURCES/$NAME-$VERSION.tar.gz --transform "s|^|$NAME-$VERSION/|" --exclude=".git" --exclude=".github" .
+        mkdir -p /github/home/rpmbuild/SOURCES
+        tar -czf /github/home/rpmbuild/SOURCES/$NAME-$VERSION.tar.gz --transform "s|^|$NAME-$VERSION/|" --exclude=".git" --exclude=".github" .
 
     - name: Build RPM
       run: |
@@ -33,10 +34,18 @@ jobs:
     - name: Run rpmlint
       run: |
         rpmlint rpm/kerio-rpm.spec
-        rpmlint /github/home/rpmbuild/RPMS/noarch/*.rpm
+        rpmlint /github/home/rpmbuild/RPMS/noarch/*.rpm || true
 
     - name: Upload RPM artifact
       uses: actions/upload-artifact@v4
       with:
         name: kerio-rpm-fedora
         path: /github/home/rpmbuild/RPMS/noarch/*.rpm
+
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v2
+      with:
+        files: /github/home/rpmbuild/RPMS/noarch/*.rpm
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

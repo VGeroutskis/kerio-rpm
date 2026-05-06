@@ -4,7 +4,7 @@ Release:        1%{?dist}
 Summary:        Kerio VPN Manager GUI
 
 License:        MIT
-URL:            https://github.com/vgeroutskis/kerio-rpm
+URL:            https://github.com/VGeroutskis/kerio-rpm
 Source0:        %{name}-%{version}.tar.gz
 
 BuildArch:      noarch
@@ -21,6 +21,9 @@ A GTK4/Libadwaita GUI to manage Kerio VPN via Podman.
 %prep
 %autosetup
 
+%build
+# Nothing to build
+
 %install
 install -d %{buildroot}%{_bindir}
 install -d %{buildroot}%{_datadir}/%{name}
@@ -32,17 +35,10 @@ cp -r src/* %{buildroot}%{_datadir}/%{name}/
 # Install docker-compose.yml
 install -m 0644 docker-compose.yml %{buildroot}%{_datadir}/%{name}/docker-compose.yml
 
-# Create wrapper script with error handling
+# Create wrapper script
 cat > %{buildroot}%{_bindir}/%{name} <<WEOF
 #!/bin/bash
-# Wrapper for %{name}
 set -e
-
-if [[ ! -f "%{_datadir}/%{name}/main.py" ]]; then
-    echo "Error: Required file %{_datadir}/%{name}/main.py not found." >&2
-    exit 1
-fi
-
 exec python3 %{_datadir}/%{name}/main.py "\$@"
 WEOF
 chmod +x %{buildroot}%{_bindir}/%{name}
