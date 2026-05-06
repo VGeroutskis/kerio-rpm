@@ -40,7 +40,7 @@ install -m 0644 docker-compose.yml %{buildroot}%{_datadir}/%{name}/docker-compos
 cat > %{buildroot}%{_bindir}/%{name} <<WEOF
 #!/bin/bash
 set -e
-exec python3 %{_datadir}/%{name}/main.py "\$@"
+exec /usr/bin/python3 %{_datadir}/%{name}/main.py "\$@"
 WEOF
 chmod +x %{buildroot}%{_bindir}/%{name}
 
