@@ -28,7 +28,7 @@ jobs:
 
     - name: Build RPM
       run: |
-        rpmbuild -ba rpm/kerio-rpm.spec
+        rpmbuild --define "_topdir /github/home/rpmbuild" -ba rpm/kerio-rpm.spec
 
     - name: Run rpmlint
       run: |
