@@ -26,7 +26,7 @@ jobs:
     - name: Prepare source tarball
       run: |
         NAME=$(grep -i '^Name:' rpm/kerio-rpm.spec | awk '{print $2}')
-        VERSION=$(grep -i '^Version:' rpm/kerio-rpm.spec | awk '{print $2}')
+        if [[ $GITHUB_REF == refs/tags/v* ]]; then VERSION=${GITHUB_REF#refs/tags/v}; sed -i "s/^Version:.*/Version:        $VERSION/" rpm/kerio-rpm.spec; else VERSION=$(grep -i '^Version:' rpm/kerio-rpm.spec | awk '{print $2}'); fi
         mkdir -p /github/home/rpmbuild/SOURCES
         tar -czf /github/home/rpmbuild/SOURCES/$NAME-$VERSION.tar.gz --transform "s|^|$NAME-$VERSION/|" --exclude=".git" --exclude=".github" .
 
