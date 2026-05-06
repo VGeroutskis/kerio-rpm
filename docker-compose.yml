@@ -1,0 +1,10 @@
+services:
+  kerio-vpn:
+    image: quay.io/hienduyph/keriovpn-client
+    container_name: keriovpn-native
+    privileged: true
+    network_mode: host
+    volumes:
+      - /etc/kerio-kvc.conf:/etc/kerio-kvc.conf
+      - /lib/modules:/lib/modules:ro
+    restart: always
