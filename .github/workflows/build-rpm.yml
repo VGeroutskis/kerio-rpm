@@ -1,0 +1,37 @@
+name: Build RPM
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: |
+        dnf install -y rpm-build rpmdevtools python3-devel tar gzip
+
+    - name: Prepare source tarball
+      run: |
+        VERSION=0.1.0
+        NAME=kerio-rpm
+        mkdir -p ~/rpmbuild/SOURCES
+        tar -czf ~/rpmbuild/SOURCES/$NAME-$VERSION.tar.gz --transform "s|^|$NAME-$VERSION/|" --exclude=".git" --exclude=".github" .
+
+    - name: Build RPM
+      run: |
+        rpmbuild -ba rpm/kerio-rpm.spec
+
+    - name: Upload RPM artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: kerio-rpm-fedora
+        path: /github/home/rpmbuild/RPMS/noarch/*.rpm
