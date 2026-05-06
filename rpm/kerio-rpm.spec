@@ -11,6 +11,7 @@ BuildArch:      noarch
 BuildRequires:  python3-devel
 Requires:       python3
 Requires:       python3-gobject
+Requires:       python3-gobject-base
 Requires:       libadwaita
 Requires:       libayatana-appindicator-gtk3
 Requires:       podman
