@@ -62,6 +62,9 @@ class VPNManager(GObject.Object):
 
     def _get_status_sync(self):
         """Synchronous status check (to be run in a thread)."""
+        if not self.is_installed():
+            return "error"
+            
         try:
             result = subprocess.run(
                 [self._podman_path, "container", "inspect", "-f", "{{.State.Status}}", self.container_name],
@@ -71,7 +74,8 @@ class VPNManager(GObject.Object):
             )
             
             if result.returncode != 0:
-                if "no such container" in result.stderr.lower():
+                stderr = result.stderr.lower()
+                if "no such container" in stderr or "error: no such" in stderr:
                     return "not_found"
                 return "error"
                 
@@ -88,6 +92,26 @@ class VPNManager(GObject.Object):
                 return "error"
         except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
             return "error"
+
+    def ensure_container_exists(self, compose_file_path):
+        """Runs podman compose -f <path> up -d if the container is missing."""
+        if not self.is_installed():
+            return False
+            
+        status = self._get_status_sync()
+        if status == "not_found":
+            try:
+                subprocess.run(
+                    [self._podman_path, "compose", "-f", compose_file_path, "up", "-d"],
+                    capture_output=True,
+                    text=True,
+                    timeout=60
+                )
+                self.refresh_status()
+                return True
+            except Exception:
+                return False
+        return True
 
     def connect(self):
         """Start the podman container asynchronously."""

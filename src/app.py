@@ -1,12 +1,67 @@
 import gi
+import os
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw, GLib, Gio
 from vpn_manager import VPNManager
+from config_handler import ConfigHandler
 import multiprocessing
 import threading
 
 from tray import tray_main
+
+class SettingsWindow(Adw.Window):
+    def __init__(self, parent, config_handler, on_save_callback):
+        super().__init__(transient_for=parent, modal=True)
+        self.set_title("VPN Settings")
+        self.set_default_size(350, 250)
+        
+        self.config_handler = config_handler
+        self.on_save_callback = on_save_callback
+        
+        config = self.config_handler.load()
+        
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        box.set_margin_top(24)
+        box.set_margin_bottom(24)
+        box.set_margin_start(24)
+        box.set_margin_end(24)
+        self.set_content(box)
+        
+        # Form
+        group = Adw.PreferencesGroup()
+        box.append(group)
+        
+        self.server_entry = Adw.EntryRow(title="Server")
+        self.server_entry.set_text(config["server"])
+        group.add(self.server_entry)
+        
+        self.port_entry = Adw.EntryRow(title="Port")
+        self.port_entry.set_text(config["port"])
+        group.add(self.port_entry)
+        
+        self.username_entry = Adw.EntryRow(title="Username")
+        self.username_entry.set_text(config["username"])
+        group.add(self.username_entry)
+        
+        self.password_entry = Adw.PasswordEntryRow(title="Password")
+        self.password_entry.set_text(config["password"])
+        group.add(self.password_entry)
+        
+        save_button = Gtk.Button(label="Save", halign=Gtk.Align.CENTER)
+        save_button.add_css_class("suggested-action")
+        save_button.connect("clicked", self.on_save_clicked)
+        box.append(save_button)
+        
+    def on_save_clicked(self, button):
+        server = self.server_entry.get_text()
+        port = self.port_entry.get_text()
+        username = self.username_entry.get_text()
+        password = self.password_entry.get_text()
+        
+        self.config_handler.save(server, port, username, password)
+        self.on_save_callback()
+        self.close()
 
 class KerioWindow(Adw.ApplicationWindow):
     def __init__(self, **kwargs):
@@ -17,6 +72,15 @@ class KerioWindow(Adw.ApplicationWindow):
         self.vpn_manager = VPNManager()
         self.vpn_manager.connect("notify::status", self.on_vpn_status_changed)
         
+        self.config_handler = ConfigHandler()
+        self.compose_path = "/usr/share/kerio-rpm/docker-compose.yml"
+        if not os.path.exists(self.compose_path):
+            # Fallback for dev: check current directory and project root
+            if os.path.exists("docker-compose.yml"):
+                self.compose_path = os.path.abspath("docker-compose.yml")
+            elif os.path.exists("../docker-compose.yml"):
+                self.compose_path = os.path.abspath("../docker-compose.yml")
+
         # Minimize to Tray setting
         self.minimize_to_tray = True
         self.connect("close-request", self.on_close_request)
@@ -28,6 +92,11 @@ class KerioWindow(Adw.ApplicationWindow):
         # Header Bar
         self.header = Adw.HeaderBar()
         self.main_box.append(self.header)
+
+        # Settings button
+        settings_btn = Gtk.Button(icon_name="emblem-system-symbolic")
+        settings_btn.connect("clicked", lambda x: self.show_settings())
+        self.header.pack_start(settings_btn)
 
         # Status Page
         self.status_page = Adw.StatusPage(
@@ -47,6 +116,18 @@ class KerioWindow(Adw.ApplicationWindow):
         # Start polling via VPNManager
         self.vpn_manager.start_polling(interval_seconds=2)
         self.connect("destroy", self.on_destroy)
+
+    def show_settings(self):
+        settings = SettingsWindow(self, self.config_handler, self.on_settings_saved)
+        settings.present()
+        
+    def on_settings_saved(self):
+        # After saving settings, call vpn_manager.ensure_container_exists()
+        def _ensure():
+            self.vpn_manager.ensure_container_exists(self.compose_path)
+            
+        threading.Thread(target=_ensure, daemon=True).start()
+        self.present()
 
     def on_close_request(self, *args):
         if self.minimize_to_tray:
@@ -76,7 +157,7 @@ class KerioWindow(Adw.ApplicationWindow):
             self.switch.set_active(False)
         elif status == "not_found":
             self.status_page.set_title("Container Not Found")
-            self.status_page.set_description("Container 'keriovpn-native' does not exist")
+            self.status_page.set_description(f"Container '{self.vpn_manager.container_name}' does not exist")
             self.switch.set_active(False)
         elif status == "transitioning":
             self.status_page.set_title("Transitioning...")
@@ -151,6 +232,13 @@ class KerioApp(Adw.Application):
         win = self.get_active_window()
         if not win:
             win = KerioWindow(application=self)
-        win.present()
+            
+        # First Run Check
+        config_path = os.path.expanduser("~/.config/kerio-rpm/kerio-kvc.conf")
+        if not os.path.exists(config_path):
+            win.show_settings()
+        else:
+            win.present()
+            
         # Push initial status
         self.status_queue.put(win.vpn_manager.status)

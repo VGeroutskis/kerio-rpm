@@ -29,6 +29,9 @@ install -d %{buildroot}%{_datadir}/applications
 # Install source files
 cp -r src/* %{buildroot}%{_datadir}/%{name}/
 
+# Install docker-compose.yml
+install -m 0644 docker-compose.yml %{buildroot}%{_datadir}/%{name}/docker-compose.yml
+
 # Create wrapper script with error handling
 cat > %{buildroot}%{_bindir}/%{name} <<WEOF
 #!/bin/bash

@@ -1,3 +1,6 @@
+import os
+import pathlib
+
 def xor_cipher(text: str) -> str:
     """
     Kerio XOR logic implementation.
@@ -40,3 +43,40 @@ def xor_decode(encoded_text: str) -> str:
         result += chr(char_code)
         
     return result
+
+class ConfigHandler:
+    def __init__(self, config_path=None):
+        if config_path is None:
+            self.config_path = os.path.expanduser("~/.config/kerio-rpm/kerio-kvc.conf")
+        else:
+            self.config_path = config_path
+            
+    def load(self):
+        config = {"server": "", "port": "4090", "username": "", "password": ""}
+        if not os.path.exists(self.config_path):
+            return config
+            
+        try:
+            with open(self.config_path, "r") as f:
+                for line in f:
+                    if "=" in line:
+                        key, val = line.split("=", 1)
+                        key = key.strip().lower()
+                        val = val.strip()
+                        if key == "server": config["server"] = val
+                        elif key == "port": config["port"] = val
+                        elif key == "username": config["username"] = val
+                        elif key == "password": config["password"] = xor_decode(val)
+        except Exception:
+            pass
+        return config
+        
+    def save(self, server, port, username, password):
+        # Create directory if it doesn't exist
+        pathlib.Path(self.config_path).parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(self.config_path, "w") as f:
+            f.write(f"Server = {server}\n")
+            f.write(f"Port = {port}\n")
+            f.write(f"Username = {username}\n")
+            f.write(f"Password = {xor_cipher(password)}\n")
