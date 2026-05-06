@@ -11,6 +11,7 @@ class KerioWindow(Adw.ApplicationWindow):
         self.set_default_size(400, 300)
 
         self.vpn_manager = VPNManager()
+        self.vpn_manager.connect("notify::status", self.on_vpn_status_changed)
 
         # Layout
         self.main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
@@ -35,40 +36,50 @@ class KerioWindow(Adw.ApplicationWindow):
         # Add switch to header
         self.header.pack_end(self.switch)
 
-        # Update status periodically
-        GLib.timeout_add_seconds(2, self.update_status)
-        self.update_status()
+        # Start polling via VPNManager
+        self.vpn_manager.start_polling(interval_seconds=2)
+        self.connect("destroy", self.on_destroy)
 
-    def update_status(self):
-        status = self.vpn_manager.get_status()
+    def on_vpn_status_changed(self, manager, pspec):
+        status = manager.status
+        GLib.idle_add(self.update_ui, status)
+
+    def update_ui(self, status):
+        # UI Responsiveness: Disable switch during transitions
+        self.switch.set_sensitive(status != "transitioning")
+        
         if status == "connected":
             self.status_page.set_title("Connected")
             self.status_page.set_description("VPN is active")
-            self.switch.set_state(True)
+            self.switch.set_active(True)
         elif status == "disconnected":
             self.status_page.set_title("Disconnected")
             self.status_page.set_description("VPN is inactive")
-            self.switch.set_state(False)
+            self.switch.set_active(False)
         elif status == "not_found":
             self.status_page.set_title("Container Not Found")
             self.status_page.set_description("Container 'keriovpn-native' does not exist")
-            self.switch.set_state(False)
+            self.switch.set_active(False)
         elif status == "transitioning":
             self.status_page.set_title("Transitioning...")
             self.status_page.set_description("Container is changing state")
         else:
             self.status_page.set_title("Error")
             self.status_page.set_description(f"Status: {status}")
-            self.switch.set_state(False)
-        return True
+            self.switch.set_active(False)
+        return False
 
     def on_switch_state_set(self, switch, state):
+        # Async VPN Calls: These methods now run in threads
         if state:
             self.vpn_manager.connect()
         else:
             self.vpn_manager.disconnect()
-        # The update_status will sync the UI
-        return True
+        return True # Handled asynchronously
+
+    def on_destroy(self, *args):
+        # Cleanup: Stop polling via VPNManager when window is destroyed
+        self.vpn_manager.stop_polling()
 
 class KerioApp(Adw.Application):
     def __init__(self):
