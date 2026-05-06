@@ -1,29 +1,44 @@
 import unittest
-import sys
-import os
-
-# Add src to path if needed
-sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
-
-try:
-    from src.config_handler import xor_cipher
-except ImportError:
-    # This is expected to fail initially as the file doesn't exist
-    xor_cipher = None
+from config_handler import xor_cipher, xor_decode
 
 class TestConfig(unittest.TestCase):
     def test_xor_cipher(self):
-        if xor_cipher is None:
-            self.fail("xor_cipher not imported. src/config_handler.py might be missing or empty.")
-            
+        """Test encryption logic and prefix."""
         original = "password123"
         encoded = xor_cipher(original)
-        self.assertTrue(encoded.startswith("XOR:"), f"Encoded string '{encoded}' does not start with 'XOR:'")
-        
-        # Kerio logic test: XOR with [0x39, 0x0c, 0x0f, 0x26, 0x67, 0x13, 0x02, 0x6d, 0x78, 0x2c]
+        self.assertTrue(encoded.startswith("XOR:"))
         # 'p' (0x70) ^ 0x39 = 0x49
         # 'a' (0x61) ^ 0x0c = 0x6d
-        self.assertEqual(encoded[4:8], "496d", f"Encoded string '{encoded}' has incorrect XOR values")
+        self.assertEqual(encoded[4:8], "496d")
+
+    def test_xor_decode(self):
+        """Test decoding logic."""
+        encoded = "XOR:496d"
+        decoded = xor_decode(encoded)
+        self.assertEqual(decoded, "pa")
+
+    def test_round_trip(self):
+        """Test that encoding then decoding returns original text."""
+        original = "Hello World! 123"
+        encoded = xor_cipher(original)
+        decoded = xor_decode(encoded)
+        self.assertEqual(decoded, original)
+
+    def test_empty_string(self):
+        """Test edge case: empty strings."""
+        self.assertEqual(xor_cipher(""), "XOR:")
+        self.assertEqual(xor_decode("XOR:"), "")
+
+    def test_no_prefix(self):
+        """Test that strings without XOR: prefix are returned unchanged."""
+        self.assertEqual(xor_decode("plain"), "plain")
+
+    def test_type_errors(self):
+        """Test basic type checking."""
+        with self.assertRaises(TypeError):
+            xor_cipher(123) # type: ignore
+        with self.assertRaises(TypeError):
+            xor_decode(None) # type: ignore
 
 if __name__ == "__main__":
     unittest.main()
