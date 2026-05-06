@@ -10,25 +10,30 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: fedora:latest
+    container: fedora:44
 
     steps:
     - uses: actions/checkout@v4
 
     - name: Install dependencies
       run: |
-        dnf install -y rpm-build rpmdevtools python3-devel tar gzip
+        dnf install -y rpm-build rpmdevtools python3-devel tar gzip rpmlint
 
     - name: Prepare source tarball
       run: |
-        VERSION=0.1.0
-        NAME=kerio-rpm
+        NAME=$(grep -i '^Name:' rpm/kerio-rpm.spec | awk '{print $2}')
+        VERSION=$(grep -i '^Version:' rpm/kerio-rpm.spec | awk '{print $2}')
         mkdir -p ~/rpmbuild/SOURCES
         tar -czf ~/rpmbuild/SOURCES/$NAME-$VERSION.tar.gz --transform "s|^|$NAME-$VERSION/|" --exclude=".git" --exclude=".github" .
 
     - name: Build RPM
       run: |
         rpmbuild -ba rpm/kerio-rpm.spec
+
+    - name: Run rpmlint
+      run: |
+        rpmlint rpm/kerio-rpm.spec
+        rpmlint /github/home/rpmbuild/RPMS/noarch/*.rpm
 
     - name: Upload RPM artifact
       uses: actions/upload-artifact@v4

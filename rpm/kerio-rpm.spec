@@ -22,16 +22,24 @@ A GTK4/Libadwaita GUI to manage Kerio VPN via Podman.
 %autosetup
 
 %install
-mkdir -p %{buildroot}%{_bindir}
-mkdir -p %{buildroot}%{_datadir}/%{name}
-mkdir -p %{buildroot}%{_datadir}/applications
+install -d %{buildroot}%{_bindir}
+install -d %{buildroot}%{_datadir}/%{name}
+install -d %{buildroot}%{_datadir}/applications
 
 # Install source files
 cp -r src/* %{buildroot}%{_datadir}/%{name}/
 
-# Create wrapper script
+# Create wrapper script with error handling
 cat > %{buildroot}%{_bindir}/%{name} <<WEOF
 #!/bin/bash
+# Wrapper for %{name}
+set -e
+
+if [[ ! -f "%{_datadir}/%{name}/main.py" ]]; then
+    echo "Error: Required file %{_datadir}/%{name}/main.py not found." >&2
+    exit 1
+fi
+
 exec python3 %{_datadir}/%{name}/main.py "\$@"
 WEOF
 chmod +x %{buildroot}%{_bindir}/%{name}
@@ -48,6 +56,9 @@ Type=Application
 Categories=Network;
 StartupNotify=true
 DEOF
+
+%check
+%{python3} src/test_config.py
 
 %files
 %{_bindir}/%{name}
