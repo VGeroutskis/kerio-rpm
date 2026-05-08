@@ -40,39 +40,57 @@ class VPNManager(GObject.Object):
             return "disconnected"
         except Exception: return "error"
 
+    def _resolve_domain(self, domain):
+        """Resolves a domain to all its IPv4 addresses, including www subdomain"""
+        ips = set()
+        domains_to_try = [domain]
+        if not domain.startswith("www."):
+            domains_to_try.append("www." + domain)
+            
+        for d in domains_to_try:
+            try:
+                info = socket.getaddrinfo(d, None, socket.AF_INET)
+                for item in info:
+                    ips.add(item[4][0])
+            except:
+                pass
+        return list(ips)
+
     def apply_custom_routes(self, routes_text):
-        # 1. CLEANUP (Remove Kerio hijacking)
-        # Check if they exist first to avoid spamming
-        res = subprocess.run(["ip", "route", "show", "0.0.0.0/1"], capture_output=True, text=True)
-        if "kvnet" in res.stdout:
+        # 1. REMOVE HIJACKING ROUTES (0.0.0.0/1 and 128.0.0.0/1)
+        res = subprocess.run(["ip", "route", "show"], capture_output=True, text=True)
+        if "0.0.0.0/1" in res.stdout and "kvnet" in res.stdout:
             self._run_privileged("ip", ["route", "del", "0.0.0.0/1", "dev", "kvnet"], capture=False)
+        if "128.0.0.0/1" in res.stdout and "kvnet" in res.stdout:
             self._run_privileged("ip", ["route", "del", "128.0.0.0/1", "dev", "kvnet"], capture=False)
 
-        # 2. Apply Custom Routes
+        # 2. APPLY CUSTOM ROUTES
         if not routes_text: return
         routes = [r.strip() for r in routes_text.split(",") if r.strip()]
+        
+        # Get current routing table to avoid redundant calls
+        current_routes = subprocess.run(["ip", "route", "show"], capture_output=True, text=True).stdout
+
         for route in routes:
             try:
                 if route.lower() in ["all", "everything", "0.0.0.0/0"]:
-                    self._run_privileged("ip", ["route", "add", "0.0.0.0/1", "via", "10.40.50.1", "dev", "kvnet"], capture=False)
-                    self._run_privileged("ip", ["route", "add", "128.0.0.0/1", "via", "10.40.50.1", "dev", "kvnet"], capture=False)
+                    if "0.0.0.0/1 via 10.40.50.1" not in current_routes:
+                        self._run_privileged("ip", ["route", "replace", "0.0.0.0/1", "via", "10.40.50.1", "dev", "kvnet"], capture=False)
+                    if "128.0.0.0/1 via 10.40.50.1" not in current_routes:
+                        self._run_privileged("ip", ["route", "replace", "128.0.0.0/1", "via", "10.40.50.1", "dev", "kvnet"], capture=False)
                     continue
 
                 target_ips = []
                 if not any(c.isdigit() for c in route):
-                    try:
-                        info = socket.getaddrinfo(route, None, socket.AF_INET)
-                        target_ips = list(set([item[4][0] for item in info]))
-                    except: continue
+                    target_ips = self._resolve_domain(route)
                 else:
                     target_ips = [route]
                 
                 for ip in target_ips:
                     mask = "/32" if "/" not in ip else ""
-                    # Check if already routed to kvnet to avoid overhead
-                    check = subprocess.run(["ip", "route", "get", ip], capture_output=True, text=True)
-                    if "kvnet" not in check.stdout:
-                        self._run_privileged("ip", ["route", "replace", ip + mask, "via", "10.40.50.1", "dev", "kvnet"], capture=False)
+                    full_target = ip + mask
+                    if f"{full_target} via 10.40.50.1" not in current_routes:
+                        self._run_privileged("ip", ["route", "replace", full_target, "via", "10.40.50.1", "dev", "kvnet"], capture=False)
             except Exception: pass
 
     def ensure_container_exists(self, compose_file_path=None):
@@ -97,13 +115,12 @@ class VPNManager(GObject.Object):
 
     def connect(self, custom_routes=None):
         if self.is_installed():
-            # Don't force stop if already running, just start the maintenance
             if self.get_status() != "connected":
                 self._run_privileged("podman", ["start", self.container_name], capture=False)
             
             def maintenance_loop():
-                # Fight for stability for 45 seconds
-                for i in range(22): 
+                # Aggressive fighting for the first minute
+                for i in range(30): 
                     time.sleep(2)
                     self.apply_custom_routes(custom_routes)
                             
