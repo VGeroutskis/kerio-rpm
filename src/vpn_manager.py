@@ -67,22 +67,24 @@ class VPNManager(GObject.Object):
         
         if not routes_text: return
         
-        # 4. PARSE ROUTES (Support both , and space)
+        # 4. PARSE ROUTES
         routes = routes_text.replace(",", " ").split()
         
-        domains = []
+        # We need to collect all domains to set them all at once in resolvectl
+        # because calling it multiple times overwrites the previous settings.
+        domain_list = []
         for route in routes:
             route = route.strip()
             if not route: continue
             
             try:
                 if not any(c.isdigit() for c in route):
-                    # Domain logic
-                    domains.append(route)
-                    self._run_privileged("systemctl", ["resolvectl", "domain", "kvnet", route, "~" + route], capture=False)
+                    # It's a domain
+                    domain_list.append(route)
+                    domain_list.append("~" + route) # Add routing mark
                     
+                    # Resolve IP for this domain using VPN DNS
                     try:
-                        # Direct lookup via VPN DNS to get current internal IP
                         cmd = ["host", route, vpn_dns]
                         lookup = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
                         for line in lookup.stdout.splitlines():
@@ -91,10 +93,14 @@ class VPNManager(GObject.Object):
                                 self._run_privileged("ip", ["route", "replace", ip + "/32", "via", "10.40.50.1", "dev", "kvnet"], capture=False)
                     except: pass
                 else:
-                    # IP logic
+                    # It's an IP
                     target = route if "/" in route else route + "/32"
                     self._run_privileged("ip", ["route", "replace", target, "via", "10.40.50.1", "dev", "kvnet"], capture=False)
             except Exception: pass
+
+        # Apply ALL domains at once
+        if domain_list:
+            self._run_privileged("systemctl", ["resolvectl", "domain", "kvnet"] + domain_list, capture=False)
 
     def ensure_container_exists(self, compose_file_path=None):
         if not self.is_installed(): return False
