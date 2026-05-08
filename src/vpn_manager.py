@@ -41,46 +41,41 @@ class VPNManager(GObject.Object):
         except Exception: return "error"
 
     def _get_vpn_dns(self):
-        """Retrieves internal DNS server from the container's resolv.conf"""
         try:
-            # We must use sudo/pkexec to exec into the root container
             res = self._run_privileged("podman", ["exec", self.container_name, "cat", "/etc/resolv.conf"])
             if res and res.stdout:
                 for line in res.stdout.splitlines():
                     if line.startswith("nameserver") and "127.0.0.1" not in line and "8.8.8.8" not in line:
                         return line.split()[1]
         except: pass
-        return "192.168.2.223" # Fallback to known working DNS
+        return "192.168.2.223"
 
     def apply_custom_routes(self, routes_text):
-        # 1. REMOVE HIJACKING
+        # 1. FORCE MTU (Fix for 'Connection timed out' / fragmentation)
+        self._run_privileged("ip", ["link", "set", "dev", "kvnet", "mtu", "1300"], capture=False)
+
+        # 2. REMOVE HIJACKING
         res = subprocess.run(["ip", "route", "show"], capture_output=True, text=True)
         if "0.0.0.0/1" in res.stdout and "kvnet" in res.stdout:
             self._run_privileged("ip", ["route", "del", "0.0.0.0/1", "dev", "kvnet"], capture=False)
         if "128.0.0.0/1" in res.stdout and "kvnet" in res.stdout:
             self._run_privileged("ip", ["route", "del", "128.0.0.0/1", "dev", "kvnet"], capture=False)
 
-        # 2. SETUP DNS (Automatic split-DNS)
+        # 3. SETUP DNS
         vpn_dns = self._get_vpn_dns()
+        self._run_privileged("systemctl", ["resolvectl", "dns", "kvnet", vpn_dns], capture=False)
         
-        # 3. APPLY CUSTOM ROUTES
         if not routes_text: return
         routes = [r.strip() for r in routes_text.split(",") if r.strip()]
         
         for route in routes:
             try:
-                # If it's a domain
                 if not any(c.isdigit() for c in route):
-                    # Step A: Setup split-DNS for this domain so we get the INTERNAL IP
-                    # resolvectl domain kvnet ~domain.com
-                    # resolvectl dns kvnet VPN_DNS_IP
-                    self._run_privileged("systemctl", ["resolvectl", "dns", "kvnet", vpn_dns], capture=False)
-                    self._run_privileged("systemctl", ["resolvectl", "domain", "kvnet", "~" + route], capture=False)
+                    # Setup split-DNS for the domain AND its subdomains
+                    # Use both ~ (routing) and non-~ (search)
+                    self._run_privileged("systemctl", ["resolvectl", "domain", "kvnet", route, "~" + route], capture=False)
                     
-                    # Wait for resolution to update
-                    time.sleep(1)
-                    
-                    # Step B: Resolve the IP using the VPN DNS explicitly to be sure
+                    # Manual resolution using the VPN DNS
                     try:
                         cmd = ["host", route, vpn_dns]
                         res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
@@ -132,6 +127,5 @@ class VPNManager(GObject.Object):
 
     def disconnect(self):
         if self.is_installed():
-            # Reset DNS settings for kvnet before stopping
             self._run_privileged("systemctl", ["resolvectl", "revert", "kvnet"], capture=False)
             self._run_privileged("podman", ["stop", self.container_name], capture=False)
