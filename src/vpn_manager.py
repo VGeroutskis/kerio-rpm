@@ -51,7 +51,7 @@ class VPNManager(GObject.Object):
         return "192.168.2.223"
 
     def apply_custom_routes(self, routes_text):
-        # 1. FORCE MTU (Fix for 'Connection timed out' / fragmentation)
+        # 1. MTU FIX
         self._run_privileged("ip", ["link", "set", "dev", "kvnet", "mtu", "1300"], capture=False)
 
         # 2. REMOVE HIJACKING
@@ -61,36 +61,39 @@ class VPNManager(GObject.Object):
         if "128.0.0.0/1" in res.stdout and "kvnet" in res.stdout:
             self._run_privileged("ip", ["route", "del", "128.0.0.0/1", "dev", "kvnet"], capture=False)
 
-        # 3. SETUP DNS
+        # 3. DNS SETUP
         vpn_dns = self._get_vpn_dns()
         self._run_privileged("systemctl", ["resolvectl", "dns", "kvnet", vpn_dns], capture=False)
         
         if not routes_text: return
-        routes = [r.strip() for r in routes_text.split(",") if r.strip()]
         
+        # 4. PARSE ROUTES (Support both , and space)
+        routes = routes_text.replace(",", " ").split()
+        
+        domains = []
         for route in routes:
+            route = route.strip()
+            if not route: continue
+            
             try:
                 if not any(c.isdigit() for c in route):
-                    # Setup split-DNS for the domain AND its subdomains
-                    # Use both ~ (routing) and non-~ (search)
+                    # Domain logic
+                    domains.append(route)
                     self._run_privileged("systemctl", ["resolvectl", "domain", "kvnet", route, "~" + route], capture=False)
                     
-                    # Manual resolution using the VPN DNS
                     try:
+                        # Direct lookup via VPN DNS to get current internal IP
                         cmd = ["host", route, vpn_dns]
-                        res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-                        target_ips = []
-                        for line in res.stdout.splitlines():
+                        lookup = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+                        for line in lookup.stdout.splitlines():
                             if "has address" in line:
-                                target_ips.append(line.split()[-1])
-                    except:
-                        continue
+                                ip = line.split()[-1]
+                                self._run_privileged("ip", ["route", "replace", ip + "/32", "via", "10.40.50.1", "dev", "kvnet"], capture=False)
+                    except: pass
                 else:
-                    target_ips = [route]
-                
-                for ip in target_ips:
-                    mask = "/32" if "/" not in ip else ""
-                    self._run_privileged("ip", ["route", "replace", ip + mask, "via", "10.40.50.1", "dev", "kvnet"], capture=False)
+                    # IP logic
+                    target = route if "/" in route else route + "/32"
+                    self._run_privileged("ip", ["route", "replace", target, "via", "10.40.50.1", "dev", "kvnet"], capture=False)
             except Exception: pass
 
     def ensure_container_exists(self, compose_file_path=None):
@@ -119,7 +122,7 @@ class VPNManager(GObject.Object):
                 self._run_privileged("podman", ["start", self.container_name], capture=False)
             
             def maintenance_loop():
-                for i in range(25): 
+                for i in range(30): 
                     time.sleep(2)
                     self.apply_custom_routes(custom_routes)
                             
