@@ -40,57 +40,62 @@ class VPNManager(GObject.Object):
             return "disconnected"
         except Exception: return "error"
 
-    def _resolve_domain(self, domain):
-        """Resolves a domain to all its IPv4 addresses, including www subdomain"""
-        ips = set()
-        domains_to_try = [domain]
-        if not domain.startswith("www."):
-            domains_to_try.append("www." + domain)
-            
-        for d in domains_to_try:
-            try:
-                info = socket.getaddrinfo(d, None, socket.AF_INET)
-                for item in info:
-                    ips.add(item[4][0])
-            except:
-                pass
-        return list(ips)
+    def _get_vpn_dns(self):
+        """Retrieves internal DNS server from the container's resolv.conf"""
+        try:
+            # We must use sudo/pkexec to exec into the root container
+            res = self._run_privileged("podman", ["exec", self.container_name, "cat", "/etc/resolv.conf"])
+            if res and res.stdout:
+                for line in res.stdout.splitlines():
+                    if line.startswith("nameserver") and "127.0.0.1" not in line and "8.8.8.8" not in line:
+                        return line.split()[1]
+        except: pass
+        return "192.168.2.223" # Fallback to known working DNS
 
     def apply_custom_routes(self, routes_text):
-        # 1. REMOVE HIJACKING ROUTES (0.0.0.0/1 and 128.0.0.0/1)
+        # 1. REMOVE HIJACKING
         res = subprocess.run(["ip", "route", "show"], capture_output=True, text=True)
         if "0.0.0.0/1" in res.stdout and "kvnet" in res.stdout:
             self._run_privileged("ip", ["route", "del", "0.0.0.0/1", "dev", "kvnet"], capture=False)
         if "128.0.0.0/1" in res.stdout and "kvnet" in res.stdout:
             self._run_privileged("ip", ["route", "del", "128.0.0.0/1", "dev", "kvnet"], capture=False)
 
-        # 2. APPLY CUSTOM ROUTES
+        # 2. SETUP DNS (Automatic split-DNS)
+        vpn_dns = self._get_vpn_dns()
+        
+        # 3. APPLY CUSTOM ROUTES
         if not routes_text: return
         routes = [r.strip() for r in routes_text.split(",") if r.strip()]
         
-        # Get current routing table to avoid redundant calls
-        current_routes = subprocess.run(["ip", "route", "show"], capture_output=True, text=True).stdout
-
         for route in routes:
             try:
-                if route.lower() in ["all", "everything", "0.0.0.0/0"]:
-                    if "0.0.0.0/1 via 10.40.50.1" not in current_routes:
-                        self._run_privileged("ip", ["route", "replace", "0.0.0.0/1", "via", "10.40.50.1", "dev", "kvnet"], capture=False)
-                    if "128.0.0.0/1 via 10.40.50.1" not in current_routes:
-                        self._run_privileged("ip", ["route", "replace", "128.0.0.0/1", "via", "10.40.50.1", "dev", "kvnet"], capture=False)
-                    continue
-
-                target_ips = []
+                # If it's a domain
                 if not any(c.isdigit() for c in route):
-                    target_ips = self._resolve_domain(route)
+                    # Step A: Setup split-DNS for this domain so we get the INTERNAL IP
+                    # resolvectl domain kvnet ~domain.com
+                    # resolvectl dns kvnet VPN_DNS_IP
+                    self._run_privileged("systemctl", ["resolvectl", "dns", "kvnet", vpn_dns], capture=False)
+                    self._run_privileged("systemctl", ["resolvectl", "domain", "kvnet", "~" + route], capture=False)
+                    
+                    # Wait for resolution to update
+                    time.sleep(1)
+                    
+                    # Step B: Resolve the IP using the VPN DNS explicitly to be sure
+                    try:
+                        cmd = ["host", route, vpn_dns]
+                        res = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+                        target_ips = []
+                        for line in res.stdout.splitlines():
+                            if "has address" in line:
+                                target_ips.append(line.split()[-1])
+                    except:
+                        continue
                 else:
                     target_ips = [route]
                 
                 for ip in target_ips:
                     mask = "/32" if "/" not in ip else ""
-                    full_target = ip + mask
-                    if f"{full_target} via 10.40.50.1" not in current_routes:
-                        self._run_privileged("ip", ["route", "replace", full_target, "via", "10.40.50.1", "dev", "kvnet"], capture=False)
+                    self._run_privileged("ip", ["route", "replace", ip + mask, "via", "10.40.50.1", "dev", "kvnet"], capture=False)
             except Exception: pass
 
     def ensure_container_exists(self, compose_file_path=None):
@@ -119,8 +124,7 @@ class VPNManager(GObject.Object):
                 self._run_privileged("podman", ["start", self.container_name], capture=False)
             
             def maintenance_loop():
-                # Aggressive fighting for the first minute
-                for i in range(30): 
+                for i in range(25): 
                     time.sleep(2)
                     self.apply_custom_routes(custom_routes)
                             
@@ -128,4 +132,6 @@ class VPNManager(GObject.Object):
 
     def disconnect(self):
         if self.is_installed():
+            # Reset DNS settings for kvnet before stopping
+            self._run_privileged("systemctl", ["resolvectl", "revert", "kvnet"], capture=False)
             self._run_privileged("podman", ["stop", self.container_name], capture=False)

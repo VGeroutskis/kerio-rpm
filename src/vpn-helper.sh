@@ -10,7 +10,13 @@ case "$COMMAND" in
         /usr/sbin/ip "$@"
         ;;
     systemctl)
-        /usr/bin/systemctl "$@"
+        # Check if the first argument after systemctl is resolvectl
+        if [[ "$1" == "resolvectl" ]]; then
+            shift
+            /usr/bin/resolvectl "$@"
+        else
+            /usr/bin/systemctl "$@"
+        fi
         ;;
     *)
         echo "Unknown command"
