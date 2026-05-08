@@ -15,7 +15,7 @@ class SettingsWindow(Adw.Window):
         self.config_handler = config_handler
         self.vpn_manager = vpn_manager
         self.set_title("Kerio VPN Settings")
-        self.set_default_size(400, 450)
+        self.set_default_size(450, 600)
 
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         box.set_margin_start(24); box.set_margin_end(24); box.set_margin_top(24); box.set_margin_bottom(24)
@@ -23,8 +23,16 @@ class SettingsWindow(Adw.Window):
 
         self.server_entry = Gtk.Entry(placeholder_text="VPN Server IP/Hostname")
         self.user_entry = Gtk.Entry(placeholder_text="Username")
+        
+        # Password entry with standard GNOME visibility icons
         self.pass_entry = Gtk.Entry(placeholder_text="Password", visibility=False)
+        self.pass_entry.set_icon_from_icon_name(Gtk.EntryIconPosition.SECONDARY, "view-reveal-symbolic")
+        self.pass_entry.set_icon_activatable(Gtk.EntryIconPosition.SECONDARY, True)
+        self.pass_entry.set_icon_sensitive(Gtk.EntryIconPosition.SECONDARY, True)
+        self.pass_entry.connect("icon-press", self.on_pass_icon_press)
+        
         self.fp_entry = Gtk.Entry(placeholder_text="MD5 Fingerprint")
+        self.routes_entry = Gtk.Entry(placeholder_text="Custom Routes (e.g. google.com, 1.1.1.1)")
 
         box.append(Gtk.Label(label="Connection Settings", css_classes=["title-4"]))
         box.append(self.server_entry)
@@ -39,6 +47,10 @@ class SettingsWindow(Adw.Window):
         fp_box.append(fetch_btn)
         box.append(fp_box)
 
+        box.append(Gtk.Label(label="Custom Routing (Comma separated)", css_classes=["title-4"]))
+        box.append(self.routes_entry)
+        box.append(Gtk.Label(label="List IPs or Domains to force through VPN", css_classes=["dim-label"]))
+
         # Import Button
         import_btn = Gtk.Button(label="Import from .conf file")
         import_btn.connect("clicked", self.on_import_clicked)
@@ -52,11 +64,18 @@ class SettingsWindow(Adw.Window):
         if config:
             self.server_entry.set_text(config.get('server', ''))
             self.user_entry.set_text(config.get('username', ''))
+            self.pass_entry.set_text(config.get('password', ''))
             self.fp_entry.set_text(config.get('fingerprint', ''))
+            self.routes_entry.set_text(config.get('custom_routes', ''))
+
+    def on_pass_icon_press(self, entry, icon_pos):
+        if icon_pos == Gtk.EntryIconPosition.SECONDARY:
+            visible = entry.get_visibility()
+            entry.set_visibility(not visible)
+            icon_name = "view-conceal-symbolic" if not visible else "view-reveal-symbolic"
+            entry.set_icon_from_icon_name(Gtk.EntryIconPosition.SECONDARY, icon_name)
 
     def on_import_clicked(self, btn):
-        dialog = Gtk.FileChooser                    # Simplified for this turn, using proper one
-        # Logic to open file chooser
         native = Gtk.FileChooserNative.new(
             title="Open Kerio Config",
             parent=self.get_root(),
@@ -70,7 +89,7 @@ class SettingsWindow(Adw.Window):
     def on_import_file_response(self, dialog, response):
         if response == Gtk.ResponseType.ACCEPT:
             file_path = dialog.get_file().get_path()
-            # Basic parsing of manual XML
+            from config_handler import xor_decode
             import xml.etree.ElementTree as ET
             try:
                 tree = ET.parse(file_path)
@@ -80,6 +99,8 @@ class SettingsWindow(Adw.Window):
                     self.server_entry.set_text(conn.findtext("server", ""))
                     self.user_entry.set_text(conn.findtext("username", ""))
                     self.fp_entry.set_text(conn.findtext("fingerprint", ""))
+                    raw_pass = conn.findtext("password", "")
+                    self.pass_entry.set_text(xor_decode(raw_pass))
             except: pass
         dialog.destroy()
 
@@ -99,9 +120,9 @@ class SettingsWindow(Adw.Window):
             server=self.server_entry.get_text(),
             username=self.user_entry.get_text(),
             password=self.pass_entry.get_text(),
-            fingerprint=self.fp_entry.get_text()
+            fingerprint=self.fp_entry.get_text(),
+            custom_routes=self.routes_entry.get_text()
         )
-        # Force container setup
         threading.Thread(target=self.vpn_manager.ensure_container_exists, daemon=True).start()
         self.close()
 
@@ -120,7 +141,7 @@ class KerioWindow(Adw.ApplicationWindow):
         main_box.append(self.status_page)
 
         self.connect_switch = Gtk.Switch(halign=Gtk.Align.CENTER)
-        self.connect_switch.connect("state-set", self.on_switch_state_set)
+        self.connect_switch_handler_id = self.connect_switch.connect("state-set", self.on_switch_state_set)
         main_box.append(self.connect_switch)
 
         btn_box = Gtk.Box(spacing=10, halign=Gtk.Align.CENTER)
@@ -144,6 +165,10 @@ class KerioWindow(Adw.ApplicationWindow):
 
     def update_ui_status(self):
         status = self.vpn_manager.get_status()
+        
+        # BLOCK signals temporarily while updating UI state to prevent feedback loops
+        self.connect_switch.handler_block(self.connect_switch_handler_id)
+        
         if status == 'connected':
             self.status_page.set_title("Connected")
             self.status_page.set_icon_name("network-vpn-symbolic")
@@ -156,11 +181,18 @@ class KerioWindow(Adw.ApplicationWindow):
             self.status_page.set_title("Container Missing")
             self.status_page.set_description("Go to Settings and Save to initialize")
             self.status_page.set_icon_name("dialog-warning-symbolic")
+            self.connect_switch.set_active(False)
+            
+        self.connect_switch.handler_unblock(self.connect_switch_handler_id)
         return True
 
     def on_switch_state_set(self, switch, state):
-        target = self.vpn_manager.connect if state else self.vpn_manager.disconnect
-        threading.Thread(target=target, daemon=True).start()
+        if state:
+            config = self.config_handler.load_config()
+            routes = config.get('custom_routes', '')
+            threading.Thread(target=self.vpn_manager.connect, args=(routes,), daemon=True).start()
+        else:
+            threading.Thread(target=self.vpn_manager.disconnect, daemon=True).start()
         return False
 
     def on_settings_clicked(self, btn):

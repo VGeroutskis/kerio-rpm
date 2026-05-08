@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Kerio VPN
+Comment=Manage Kerio Control VPN connection
+Exec=/usr/bin/python3 /home/vgeroutskis/Documents/Files/Personal/kerio-rpm/src/main.py
+Icon=network-vpn-symbolic
+Terminal=false
+Type=Application
+Categories=Network;VPN;
+StartupNotify=true
+Path=/home/vgeroutskis/Documents/Files/Personal/kerio-rpm/src

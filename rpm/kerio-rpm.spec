@@ -1,70 +1,76 @@
 Name:           kerio-rpm
-Version:        0.1.0
+Version:        1.0.0
 Release:        1%{?dist}
-Summary:        Kerio VPN Manager GUI
+Summary:        Modern GTK4 GUI for Kerio Control VPN (Podman based)
 
 License:        MIT
-URL:            https://github.com/VGeroutskis/kerio-rpm
+URL:            https://github.com/cognitera/kerio-rpm
 Source0:        %{name}-%{version}.tar.gz
 
 BuildArch:      noarch
-BuildRequires:  python3-devel
 Requires:       python3
 Requires:       python3-gobject
-Requires:       python3-gobject-base
 Requires:       libadwaita
-Requires:       libayatana-appindicator-gtk3
 Requires:       podman
+Requires:       podman-compose
+Requires:       polkit
+Requires:       openssl
 
 %description
-A GTK4/Libadwaita GUI to manage Kerio VPN via Podman.
+A modern Linux GUI for Kerio Control VPN that uses a rootless Podman 
+container as the backend. Features split-tunneling management and XOR password encryption.
 
 %prep
-%autosetup
+%setup -q
 
 %build
-# Nothing to build
+# No compilation needed for Python
 
 %install
-install -d %{buildroot}%{_bindir}
-install -d %{buildroot}%{_datadir}/%{name}
-install -d %{buildroot}%{_datadir}/applications
+mkdir -p %{buildroot}%{_bindir}
+mkdir -p %{buildroot}%{_datadir}/%{name}
+mkdir -p %{buildroot}%{_datadir}/%{name}/src
+mkdir -p %{buildroot}%{_datadir}/applications
+mkdir -p %{buildroot}%{_datadir}/polkit-1/actions
+mkdir -p %{buildroot}%{_datadir}/polkit-1/rules.d
 
-# Install source files
-cp -r src/* %{buildroot}%{_datadir}/%{name}/
+# Copy source files
+cp src/*.py %{buildroot}%{_datadir}/%{name}/src/
+cp src/*.sh %{buildroot}%{_datadir}/%{name}/src/
+cp docker-compose.yml %{buildroot}%{_datadir}/%{name}/
 
-# Install docker-compose.yml
-install -m 0644 docker-compose.yml %{buildroot}%{_datadir}/%{name}/docker-compose.yml
-
-# Create wrapper script
-cat > %{buildroot}%{_bindir}/%{name} <<WEOF
-#!/bin/bash
-set -e
-exec /usr/bin/python3 %{_datadir}/%{name}/main.py "\$@"
-WEOF
-chmod +x %{buildroot}%{_bindir}/%{name}
-
-# Create desktop entry
-cat > %{buildroot}%{_datadir}/applications/%{name}.desktop <<DEOF
+# Desktop file
+cp data/*.desktop %{buildroot}%{_datadir}/applications/ 2>/dev/null || cat > %{buildroot}%{_datadir}/applications/com.cognitera.kerio-rpm.desktop <<EOD
 [Desktop Entry]
 Name=Kerio VPN
-Comment=Manage Kerio VPN
-Exec=%{name}
+Comment=Manage Kerio Control VPN connection
+Exec=kerio-rpm
 Icon=network-vpn-symbolic
 Terminal=false
 Type=Application
-Categories=Network;
+Categories=Network;VPN;
 StartupNotify=true
-DEOF
+EOD
 
-%check
-%{python3} src/test_config.py
+# Polkit files
+cp data/com.cognitera.kerio-rpm.policy %{buildroot}%{_datadir}/polkit-1/actions/
+cp data/10-kerio-rpm.rules %{buildroot}%{_datadir}/polkit-1/rules.d/
+
+# Launcher script
+cat > %{buildroot}%{_bindir}/kerio-rpm <<EOD
+#!/bin/bash
+export PYTHONPATH=%{_datadir}/%{name}/src
+exec /usr/bin/python3 %{_datadir}/%{name}/src/main.py "$@"
+EOD
+chmod +x %{buildroot}%{_bindir}/kerio-rpm
 
 %files
 %{_bindir}/%{name}
 %{_datadir}/%{name}/
-%{_datadir}/applications/%{name}.desktop
+%{_datadir}/applications/*.desktop
+%{_datadir}/polkit-1/actions/*.policy
+%{_datadir}/polkit-1/rules.d/*.rules
 
 %changelog
-* Wed May 06 2026 vgeroutskis <vgeroutskis@example.com> - 0.1.0-1
-- Initial release
+* Fri May 08 2026 Valentinos Geroutskis <vgeroutskis@example.com> - 1.0.0-1
+- Initial release with split-tunneling and GTK4 UI

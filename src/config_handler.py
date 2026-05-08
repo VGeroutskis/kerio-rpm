@@ -5,10 +5,11 @@ import xml.etree.ElementTree as ET
 def xor_cipher(text: str) -> str:
     if not isinstance(text, str):
         raise TypeError("Input must be a string")
-    key = [0x39, 0x0c, 0x0f, 0x26, 0x67, 0x13, 0x02, 0x6d, 0x78, 0x2c]
+    # Official Kerio XOR key is 0x55
+    key = 0x55
     result = ""
-    for i, char in enumerate(text):
-        xor_val = ord(char) ^ key[i % len(key)]
+    for char in text:
+        xor_val = ord(char) ^ key
         result += f"{xor_val:02x}"
     return "XOR:" + result
 
@@ -18,13 +19,13 @@ def xor_decode(encoded_text: str) -> str:
     if not encoded_text.startswith("XOR:"):
         return encoded_text
     hex_data = encoded_text[4:]
-    key = [0x39, 0x0c, 0x0f, 0x26, 0x67, 0x13, 0x02, 0x6d, 0x78, 0x2c]
+    key = 0x55
     result = ""
     for i in range(0, len(hex_data), 2):
         hex_pair = hex_data[i:i+2]
         if len(hex_pair) < 2: break
         xor_val = int(hex_pair, 16)
-        char_code = xor_val ^ key[(i // 2) % len(key)]
+        char_code = xor_val ^ key
         result += chr(char_code)
     return result
 
@@ -39,7 +40,14 @@ class ConfigHandler:
         return os.path.exists(self.config_path)
 
     def load_config(self):
-        config = {"server": "", "port": "4090", "username": "", "password": "", "fingerprint": ""}
+        config = {
+            "server": "", 
+            "port": "4090", 
+            "username": "", 
+            "password": "", 
+            "fingerprint": "",
+            "custom_routes": ""
+        }
         if not self.config_exists():
             return config
             
@@ -53,11 +61,16 @@ class ConfigHandler:
                 config["username"] = conn.findtext("username", "")
                 config["password"] = xor_decode(conn.findtext("password", ""))
                 config["fingerprint"] = conn.findtext("fingerprint", "")
+                
+            # Load custom routes from our custom section
+            app_settings = root.find(".//app_settings")
+            if app_settings is not None:
+                config["custom_routes"] = app_settings.findtext("custom_routes", "")
         except Exception:
             pass
         return config
         
-    def save_config(self, server, username, password, fingerprint, port="4090"):
+    def save_config(self, server, username, password, fingerprint, custom_routes="", port="4090"):
         pathlib.Path(self.config_path).parent.mkdir(parents=True, exist_ok=True)
         
         root = ET.Element("config")
@@ -70,6 +83,14 @@ class ConfigHandler:
         ET.SubElement(conn, "fingerprint").text = fingerprint
         ET.SubElement(conn, "active").text = "1"
         
+        # Add our custom settings section for routes
+        app_settings = ET.SubElement(root, "app_settings")
+        ET.SubElement(app_settings, "custom_routes").text = custom_routes
+        
         tree = ET.ElementTree(root)
         ET.indent(tree, space="  ", level=0)
         tree.write(self.config_path, encoding="UTF-8", xml_declaration=True)
+        
+        try:
+            os.chmod(self.config_path, 0o644)
+        except: pass

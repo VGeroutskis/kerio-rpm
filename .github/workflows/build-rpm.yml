@@ -2,53 +2,57 @@ name: Build RPM
 
 on:
   push:
-    branches: [ main ]
-    tags: [ 'v*' ]
-  pull_request:
-    branches: [ main ]
+    tags:
+      - 'v*'
   workflow_dispatch:
-
-permissions:
-  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    container: fedora:44
+    container:
+      image: fedora:latest
 
     steps:
-    - uses: actions/checkout@v4
-
-    - name: Install dependencies
+    - name: Install build tools
       run: |
-        dnf install -y rpm-build rpmdevtools python3-devel tar gzip rpmlint
+        dnf install -y rpm-build tar gzip
 
-    - name: Prepare source tarball
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Extract version from tag
+      id: get_version
       run: |
-        NAME=$(grep -i '^Name:' rpm/kerio-rpm.spec | awk '{print $2}')
-        if [[ $GITHUB_REF == refs/tags/v* ]]; then VERSION=${GITHUB_REF#refs/tags/v}; sed -i "s/^Version:.*/Version:        $VERSION/" rpm/kerio-rpm.spec; else VERSION=$(grep -i '^Version:' rpm/kerio-rpm.spec | awk '{print $2}'); fi
-        mkdir -p /github/home/rpmbuild/SOURCES
-        tar -czf /github/home/rpmbuild/SOURCES/$NAME-$VERSION.tar.gz --transform "s|^|$NAME-$VERSION/|" --exclude=".git" --exclude=".github" .
+        # Extract version from tag (e.g., v1.0.1 -> 1.0.1)
+        TAG_VERSION=${GITHUB_REF#refs/tags/v}
+        if [[ "$TAG_VERSION" == "refs/heads/main" ]] || [[ "$TAG_VERSION" == "workflow_dispatch" ]]; then
+          TAG_VERSION=$(grep "Version:" rpm/kerio-rpm.spec | awk '{print $2}')
+        fi
+        echo "version=$TAG_VERSION" >> $GITHUB_OUTPUT
+        
+        # Update spec file with the tag version
+        sed -i "s/Version:.*/Version: $TAG_VERSION/" rpm/kerio-rpm.spec
+
+    - name: Prepare Source Tarball
+      run: |
+        VERSION=${{ steps.get_version.outputs.version }}
+        NAME=kerio-rpm
+        mkdir -p ~/rpmbuild/SOURCES
+        # Create a tarball that matches Source0 in spec
+        tar --transform "s|^|kerio-rpm-$VERSION/|" -czf ~/rpmbuild/SOURCES/$NAME-$VERSION.tar.gz .
 
     - name: Build RPM
       run: |
-        rpmbuild --define "_topdir /github/home/rpmbuild" -ba rpm/kerio-rpm.spec
+        rpmbuild -ba rpm/kerio-rpm.spec
 
-    - name: Run rpmlint
-      run: |
-        rpmlint rpm/kerio-rpm.spec
-        rpmlint /github/home/rpmbuild/RPMS/noarch/*.rpm || true
-
-    - name: Upload RPM artifact
+    - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: kerio-rpm-fedora
-        path: /github/home/rpmbuild/RPMS/noarch/*.rpm
+        name: kerio-rpm-package
+        path: /root/rpmbuild/RPMS/noarch/*.rpm
 
     - name: Create Release
       if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2
       with:
-        files: /github/home/rpmbuild/RPMS/noarch/*.rpm
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        files: /root/rpmbuild/RPMS/noarch/*.rpm

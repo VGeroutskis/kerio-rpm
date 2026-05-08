@@ -5,6 +5,6 @@ services:
     privileged: true
     network_mode: host
     volumes:
-      - /etc/kerio-kvc.conf:/etc/kerio-kvc.conf
+      - /home/vgeroutskis/.config/kerio-rpm/kerio-kvc.conf:/etc/kerio-kvc.conf
       - /lib/modules:/lib/modules:ro
     restart: always
