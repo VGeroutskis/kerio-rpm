@@ -18,7 +18,7 @@ jobs:
     steps:
     - name: Install build tools
       run: |
-        dnf install -y rpm-build tar gzip
+        dnf install -y rpm-build tar gzip findutils
 
     - name: Checkout code
       uses: actions/checkout@v4
@@ -44,14 +44,23 @@ jobs:
       run: |
         rpmbuild -ba rpm/kerio-rpm.spec
 
+    - name: Locate RPMs
+      id: locate
+      run: |
+        # Find all .rpm files and save the directory to a variable
+        RPM_PATH=$(find ~/rpmbuild/RPMS -name "*.rpm" | head -n 1)
+        RPM_DIR=$(dirname "$RPM_PATH")
+        echo "rpm_dir=$RPM_DIR" >> $GITHUB_OUTPUT
+        echo "Found RPMs in: $RPM_DIR"
+
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: kerio-rpm-package
-        path: /root/rpmbuild/RPMS/**/*.rpm
+        path: ${{ steps.locate.outputs.rpm_dir }}/*.rpm
 
     - name: Create Release
       if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@v2
       with:
-        files: /root/rpmbuild/RPMS/**/*.rpm
+        files: ${{ steps.locate.outputs.rpm_dir }}/*.rpm
