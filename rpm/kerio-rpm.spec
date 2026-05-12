@@ -17,6 +17,8 @@ Requires:       podman-compose
 Requires:       polkit
 Requires:       openssl
 Requires:       bind-utils
+Requires:       libappindicator-gtk3
+Requires:       python3-gobject-base
 
 %description
 A modern Linux GUI for Kerio Control VPN that uses a rootless Podman 
@@ -61,7 +63,8 @@ fi
 
 # Polkit files
 cp data/com.cognitera.kerio-rpm.policy %{buildroot}%{_datadir}/polkit-1/actions/
-cp data/10-kerio-rpm.rules %{buildroot}%{_datadir}/polkit-1/rules.d/
+mkdir -p %{buildroot}%{_sysconfdir}/polkit-1/rules.d
+cp data/10-kerio-rpm.rules %{buildroot}%{_sysconfdir}/polkit-1/rules.d/
 
 # Launcher script
 cat > %{buildroot}%{_bindir}/kerio-rpm <<EOD
@@ -76,7 +79,7 @@ chmod +x %{buildroot}%{_bindir}/kerio-rpm
 %{_datadir}/%{name}/
 %{_datadir}/applications/*.desktop
 %{_datadir}/polkit-1/actions/*.policy
-%{_datadir}/polkit-1/rules.d/*.rules
+%{_sysconfdir}/polkit-1/rules.d/*.rules
 
 %changelog
 * Fri May 08 2026 Valentinos Geroutskis <vgeroutskis@example.com> - 1.0.0-1

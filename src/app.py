@@ -204,5 +204,34 @@ class KerioApp(Adw.Application):
         self.connect("activate", self.on_activate)
 
     def on_activate(self, app):
+        try:
+            from tray import tray_main
+            import threading
+            from queue import Queue
+            
+            self.status_queue = Queue()
+            self.cmd_queue = Queue()
+            
+            # Start tray in a separate thread
+            threading.Thread(target=tray_main, args=(self.status_queue, self.cmd_queue), daemon=True).start()
+            
+            # Watch for commands from tray
+            GLib.timeout_add(500, self.check_tray_commands)
+        except Exception as e:
+            print(f"Warning: Could not initialize tray icon: {e}")
+
         win = KerioWindow(application=app)
         win.present()
+
+    def check_tray_commands(self):
+        try:
+            while not self.cmd_queue.empty():
+                cmd = self.cmd_queue.get_nowait()
+                if cmd == "quit":
+                    self.quit()
+                elif cmd == "show":
+                    # Implementation for showing window if hidden
+                    pass
+        except:
+            pass
+        return True
