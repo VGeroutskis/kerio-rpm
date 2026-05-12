@@ -4,8 +4,9 @@ import traceback
 
 def main():
     try:
+        from gi.repository import Gio
         from app import KerioApp
-        app = KerioApp()
+        app = KerioApp(flags=Gio.ApplicationFlags.FLAGS_NONE)
         return app.run(sys.argv)
     except Exception as e:
         log_path = os.path.expanduser("~/.kerio-rpm-error.log")

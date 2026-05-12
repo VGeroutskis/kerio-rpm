@@ -221,6 +221,7 @@ class KerioApp(Adw.Application):
             print(f"Warning: Could not initialize tray icon: {e}")
 
         win = KerioWindow(application=app)
+        win.set_visible(True)
         win.present()
 
     def check_tray_commands(self):
