@@ -10,11 +10,13 @@ Source0:        %{name}-%{version}.tar.gz
 BuildArch:      noarch
 Requires:       python3
 Requires:       python3-gobject
+Requires:       gtk4
 Requires:       libadwaita
 Requires:       podman
 Requires:       podman-compose
 Requires:       polkit
 Requires:       openssl
+Requires:       bind-utils
 
 %description
 A modern Linux GUI for Kerio Control VPN that uses a rootless Podman 
@@ -37,10 +39,14 @@ mkdir -p %{buildroot}%{_datadir}/polkit-1/rules.d
 # Copy source files
 cp src/*.py %{buildroot}%{_datadir}/%{name}/src/
 cp src/*.sh %{buildroot}%{_datadir}/%{name}/src/
+chmod +x %{buildroot}%{_datadir}/%{name}/src/vpn-helper.sh
 cp docker-compose.yml %{buildroot}%{_datadir}/%{name}/
 
 # Desktop file
-cp data/*.desktop %{buildroot}%{_datadir}/applications/ 2>/dev/null || cat > %{buildroot}%{_datadir}/applications/com.cognitera.kerio-rpm.desktop <<EOD
+if [ -f data/com.cognitera.kerio-rpm.desktop ]; then
+    cp data/com.cognitera.kerio-rpm.desktop %{buildroot}%{_datadir}/applications/
+else
+    cat > %{buildroot}%{_datadir}/applications/com.cognitera.kerio-rpm.desktop <<EOD
 [Desktop Entry]
 Name=Kerio VPN
 Comment=Manage Kerio Control VPN connection
@@ -51,6 +57,7 @@ Type=Application
 Categories=Network;VPN;
 StartupNotify=true
 EOD
+fi
 
 # Polkit files
 cp data/com.cognitera.kerio-rpm.policy %{buildroot}%{_datadir}/polkit-1/actions/

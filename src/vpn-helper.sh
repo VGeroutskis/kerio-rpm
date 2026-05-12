@@ -6,6 +6,9 @@ case "$COMMAND" in
     podman)
         /usr/bin/podman "$@"
         ;;
+    podman-compose)
+        /usr/bin/podman-compose "$@"
+        ;;
     ip)
         /usr/sbin/ip "$@"
         ;;

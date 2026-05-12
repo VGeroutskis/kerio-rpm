@@ -1,6 +1,6 @@
 polkit.addRule(function(action, subject) {
     if (action.id == "org.freedesktop.policykit.exec" &&
-        action.lookup("program") == "/home/vgeroutskis/Documents/Files/Personal/kerio-rpm/src/vpn-helper.sh" &&
+        action.lookup("program") == "/usr/share/kerio-rpm/src/vpn-helper.sh" &&
         subject.isInGroup("wheel")) {
         return polkit.Result.YES;
     }

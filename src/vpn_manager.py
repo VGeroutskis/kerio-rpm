@@ -104,23 +104,62 @@ class VPNManager(GObject.Object):
 
     def ensure_container_exists(self, compose_file_path=None):
         if not self.is_installed(): return False
-        if compose_file_path is None:
-            paths = [
-                "/usr/share/kerio-rpm/docker-compose.yml",
-                os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docker-compose.yml"),
-                "./docker-compose.yml"
-            ]
-            for p in paths:
-                if os.path.exists(p):
-                    compose_file_path = p
-                    break
-        if not compose_file_path: return False
+        
+        # Determine the user's config path
+        user_config_dir = os.path.expanduser("~/.config/kerio-rpm")
+        user_config_file = os.path.join(user_config_dir, "kerio-kvc.conf")
+        generated_compose_path = os.path.join(user_config_dir, "docker-compose.generated.yml")
+        
+        # Read the template compose file
+        template_path = None
+        paths = [
+            "/usr/share/kerio-rpm/docker-compose.yml",
+            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docker-compose.yml"),
+            "./docker-compose.yml"
+        ]
+        for p in paths:
+            if os.path.exists(p):
+                template_path = p
+                break
+        
+        if not template_path: return False
+        
         try:
+            with open(template_path, 'r') as f:
+                content = f.read()
+            
+            # Replace the hardcoded volume path with the actual user config path
+            import re
+            # Match the volume line that points to kerio-kvc.conf
+            new_content = re.sub(
+                r'- .*/kerio-kvc\.conf:/etc/kerio-kvc\.conf',
+                f'- {user_config_file}:/etc/kerio-kvc.conf',
+                content
+            )
+            
+            os.makedirs(user_config_dir, exist_ok=True)
+            with open(generated_compose_path, 'w') as f:
+                f.write(new_content)
+                
             if self.get_status() == "not_found":
                 self._run_privileged("systemctl", ["enable", "--now", "podman.socket"], capture=False)
-                self._run_privileged("podman", ["compose", "-f", compose_file_path, "up", "-d"], capture=False)
+                
+                # Try 'podman compose' first, then fallback to 'podman-compose'
+                compose_cmd = "podman"
+                compose_args = ["compose"]
+                
+                # Check if 'podman compose' works
+                check = subprocess.run(["podman", "compose", "--version"], capture_output=True)
+                if check.returncode != 0:
+                    compose_cmd = "podman-compose"
+                    compose_args = []
+                
+                # Use the generated compose file
+                self._run_privileged(compose_cmd, compose_args + ["-f", generated_compose_path, "up", "-d"], capture=False)
             return True
-        except Exception: return False
+        except Exception as e:
+            print(f"Error ensuring container exists: {e}")
+            return False
 
     def connect(self, custom_routes=None):
         if self.is_installed():
