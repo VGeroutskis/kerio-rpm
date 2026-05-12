@@ -1,5 +1,5 @@
 Name:           kerio-rpm
-Version:        1.1.2
+Version:        1.1.3
 Release:        1%{?dist}
 Summary:        Modern GTK4 GUI for Kerio Control VPN (Podman based)
 
