@@ -4,16 +4,17 @@ import traceback
 
 def main():
     try:
-        from gi.repository import Gio
         from app import KerioApp
-        app = KerioApp(flags=Gio.ApplicationFlags.FLAGS_NONE)
-        return app.run(sys.argv)
+        app = KerioApp()
+        # Passing empty list to avoid "can not open files" error
+        return app.run([])
     except Exception as e:
         log_path = os.path.expanduser("~/.kerio-rpm-error.log")
         with open(log_path, "a") as f:
-            f.write("\n--- Error Report ---\n")
+            f.write(f"\n--- Error at {os.popen('date').read()} ---\n")
             traceback.print_exc(file=f)
-        print(f"Application failed to start. Error logged to {log_path}")
+            f.flush()
+        print(f"Failed to start. Check {log_path}")
         sys.exit(1)
 
 if __name__ == "__main__":

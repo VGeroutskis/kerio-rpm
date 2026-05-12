@@ -1,5 +1,5 @@
 Name:           kerio-rpm
-Version:        1.1.1
+Version:        1.1.2
 Release:        1%{?dist}
 Summary:        Modern GTK4 GUI for Kerio Control VPN (Podman based)
 
@@ -10,6 +10,7 @@ Source0:        %{name}-%{version}.tar.gz
 BuildArch:      noarch
 Requires:       python3
 Requires:       python3-gobject
+Requires:       python3-adwaita
 Requires:       gtk4
 Requires:       libadwaita
 Requires:       podman

@@ -201,27 +201,27 @@ class KerioWindow(Adw.ApplicationWindow):
 class KerioApp(Adw.Application):
     def __init__(self, **kwargs):
         super().__init__(application_id='com.cognitera.kerio-rpm', **kwargs)
-        self.connect("activate", self.on_activate)
 
-    def on_activate(self, app):
-        try:
-            from tray import tray_main
-            import threading
-            from queue import Queue
-            
-            self.status_queue = Queue()
-            self.cmd_queue = Queue()
-            
-            # Start tray in a separate thread
-            threading.Thread(target=tray_main, args=(self.status_queue, self.cmd_queue), daemon=True).start()
-            
-            # Watch for commands from tray
-            GLib.timeout_add(500, self.check_tray_commands)
-        except Exception as e:
-            print(f"Warning: Could not initialize tray icon: {e}")
+    def do_activate(self):
+        # This is the standard entry point for GtkApplication
+        win = self.get_active_window()
+        if not win:
+            print("Activating Kerio VPN...") # This will show in terminal
+            try:
+                from tray import tray_main
+                import threading
+                from queue import Queue
+                
+                self.status_queue = Queue()
+                self.cmd_queue = Queue()
+                
+                threading.Thread(target=tray_main, args=(self.status_queue, self.cmd_queue), daemon=True).start()
+                GLib.timeout_add(500, self.check_tray_commands)
+            except Exception as e:
+                print(f"Tray error: {e}")
 
-        win = KerioWindow(application=app)
-        win.set_visible(True)
+            win = KerioWindow(application=self)
+        
         win.present()
 
     def check_tray_commands(self):
